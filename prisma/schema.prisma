@@ -1,0 +1,466 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  DELIVERY_AGENT
+}
+
+enum KYCStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  REQUESTED
+  ACCEPTED
+  IN_DELIVERY
+  ACTIVE
+  RETURN_IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum DeliveryStatus {
+  ASSIGNED
+  PICKUP_STARTED
+  PICKED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  RETURN_STARTED
+  RETURNED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  CLOSED
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH_ON_DELIVERY
+}
+
+enum NotificationType {
+  BOOKING_REQUEST
+  BOOKING_ACCEPTED
+  BOOKING_CANCELLED
+  DELIVERY_UPDATE
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  KYC_STATUS
+  REVIEW_RECEIVED
+  DISPUTE_OPENED
+}
+
+model User {
+  id                String              @id @default(uuid())
+  email             String              @unique
+  password          String
+  name              String
+  phone             String?
+  role              UserRole            @default(USER)
+  isEmailVerified   Boolean             @default(false)
+  profileImage      String?
+  
+  // Delivery address for receiving rentals
+  deliveryAddress   String?
+  deliveryCity      String?
+  deliveryState     String?
+  deliveryZipCode   String?
+  deliveryLatitude  Float?
+  deliveryLongitude Float?
+  
+  // Payment accounts - for receiving refunds/earnings
+  refundUpiId       String?             // For receiving refunds as renter
+  refundBankAccount String?             // For bank transfers (JSON: account_holder, account_number, ifsc_code, bank_name)
+  
+  earningsUpiId     String?             // For receiving earnings as lender
+  earningsBankAccount String?           // For bank transfers (JSON: account_holder, account_number, ifsc_code, bank_name)
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  kyc               KYC?
+  listings          Listing[]
+  bookingsAsRenter  Booking[]           @relation("RenterBookings")
+  bookingsAsLender  Booking[]           @relation("LenderBookings")
+  reviewsGiven      Review[]            @relation("ReviewsGiven")
+  reviewsReceived   Review[]            @relation("ReviewsReceived")
+  deliveryJobs      DeliveryJob[]
+  notifications     Notification[]
+  disputes          Dispute[]
+  refundsReceived   Refund[]            @relation("RefundsReceived")
+  paymentsReceived  PaymentTransaction[] @relation("PaymentsReceived")
+
+  @@index([email])
+  @@index([role])
+}
+
+model KYC {
+  id                String              @id @default(uuid())
+  userId            String              @unique
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  idProofUrl        String
+  addressProofUrl   String
+  status            KYCStatus           @default(PENDING)
+  rejectionReason   String?
+  
+  submittedAt       DateTime            @default(now())
+  reviewedAt        DateTime?
+  reviewedBy        String?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Listing {
+  id                String              @id @default(uuid())
+  userId            String
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title             String
+  description       String
+  category          String
+  condition         String
+  
+  pricePerHour      Float?
+  pricePerDay       Float
+  deposit           Float
+  
+  images            String[]            // Array of image URLs
+  
+  // Location
+  latitude          Float
+  longitude         Float
+  address           String
+  city              String
+  state             String
+  zipCode           String?
+  
+  // Availability
+  isAvailable       Boolean             @default(true)
+  isPaused          Boolean             @default(false)
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  bookings          Booking[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([city])
+  @@index([isAvailable])
+}
+
+model Booking {
+  id                String              @id @default(uuid())
+  
+  // Relationships
+  listingId         String
+  listing           Listing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  renterId          String
+  renter            User                @relation("RenterBookings", fields: [renterId], references: [id], onDelete: Cascade)
+  
+  lenderId          String
+  lender            User                @relation("LenderBookings", fields: [lenderId], references: [id])
+  
+  // Booking details
+  startDate         DateTime
+  endDate           DateTime
+  status            BookingStatus       @default(REQUESTED)
+  
+  // Pricing
+  rentAmount        Float
+  depositAmount     Float
+  deliveryFee       Float
+  totalAmount       Float
+  platformFee       Float
+  
+  // Payment
+  paymentMethod     PaymentMethod       @default(CASH_ON_DELIVERY)
+  stripePaymentIntentId String?
+  paymentCaptured   Boolean             @default(false)
+  depositRefunded   Boolean             @default(false)
+  refundAmount      Float?
+  
+  // Return details
+  earlyReturnRefund Float?              // Amount refunded if renter returns early (50% of remaining rental fees)
+  
+  // Timestamps
+  requestedAt       DateTime            @default(now())
+  acceptedAt        DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  returnInitiatedAt DateTime?           // When renter requested to return the item
+  
+  // Relations
+  deliveryJob       DeliveryJob?
+  reviews           Review[]
+  dispute           Dispute?
+  refund            Refund?
+  paymentTransaction PaymentTransaction?
+
+  @@index([listingId])
+  @@index([renterId])
+  @@index([lenderId])
+  @@index([status])
+  @@index([startDate])
+}
+
+model DeliveryJob {
+  id                String              @id @default(uuid())
+  
+  bookingId         String              @unique
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  deliveryAgentId   String?
+  deliveryAgent     User?               @relation(fields: [deliveryAgentId], references: [id])
+  
+  status            DeliveryStatus      @default(ASSIGNED)
+  
+  // Pickup details
+  pickupAddress     String
+  pickupLatitude    Float
+  pickupLongitude   Float
+  pickupStartedAt   DateTime?
+  pickedAt          DateTime?
+  pickupPhotoUrl    String?
+  pickupPhotos      String[]            // Array of photo URLs
+  pickupVideoUrl    String?             // Video URL for condition proof
+  
+  // Delivery details
+  deliveryAddress   String
+  deliveryLatitude  Float
+  deliveryLongitude Float
+  outForDeliveryAt  DateTime?
+  deliveredAt       DateTime?
+  deliveryPhotoUrl  String?
+  deliveryPhotos    String[]            // Array of photo URLs
+  deliveryVideoUrl  String?             // Video URL for condition proof
+  amountCollected   Float?              // Cash collected on delivery
+  
+  // Return details
+  returnStartedAt   DateTime?
+  returnedAt        DateTime?
+  returnPhotoUrl    String?
+  returnPhotos      String[]            // Array of photo URLs
+  returnVideoUrl    String?             // Video URL for condition proof
+  
+  // Live tracking
+  currentLatitude   Float?
+  currentLongitude  Float?
+  lastLocationUpdate DateTime?
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([bookingId])
+  @@index([deliveryAgentId])
+  @@index([status])
+}
+
+model Review {
+  id                String              @id @default(uuid())
+  
+  bookingId         String
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  reviewerId        String
+  reviewer          User                @relation("ReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  
+  revieweeId        String
+  reviewee          User                @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  
+  rating            Int                 // 1-5
+  comment           String?
+  
+  createdAt         DateTime            @default(now())
+
+  @@index([bookingId])
+  @@index([reviewerId])
+  @@index([revieweeId])
+}
+
+model Dispute {
+  id                String              @id @default(uuid())
+  
+  bookingId         String              @unique
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  reportedBy        String
+  reporter          User                @relation(fields: [reportedBy], references: [id])
+  
+  reason            String
+  description       String
+  evidenceUrls      String[]            // Photos/videos
+  
+  status            DisputeStatus       @default(OPEN)
+  resolution        String?
+  resolvedBy        String?
+  resolvedAt        DateTime?
+  
+  // Refund adjustment
+  depositRefundAmount Float?
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([bookingId])
+  @@index([reportedBy])
+  @@index([status])
+}
+
+model Notification {
+  id                String              @id @default(uuid())
+  
+  userId            String
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type              NotificationType
+  title             String
+  message           String
+  
+  isRead            Boolean             @default(false)
+  
+  // Optional reference to related entity
+  relatedEntityId   String?
+  relatedEntityType String?
+  
+  createdAt         DateTime            @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model StripeLog {
+  id                String              @id @default(uuid())
+  
+  eventType         String
+  eventId           String              @unique
+  paymentIntentId   String?
+  
+  status            String
+  amount            Float?
+  
+  metadata          String              // JSON string
+  rawEvent          String              // JSON string
+  
+  createdAt         DateTime            @default(now())
+
+  @@index([paymentIntentId])
+  @@index([eventType])
+}
+
+model AdminAction {
+  id                String              @id @default(uuid())
+  
+  adminId           String
+  action            String              // e.g., "APPROVE_KYC", "REJECT_LISTING"
+  targetType        String              // e.g., "USER", "LISTING", "BOOKING"
+  targetId          String
+  
+  reason            String?
+  metadata          String?             // JSON string for additional context
+  
+  createdAt         DateTime            @default(now())
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  PROCESSED
+  FAILED
+  CANCELLED
+}
+
+model Refund {
+  id                String              @id @default(uuid())
+  
+  bookingId         String              @unique
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  userId            String              // Renter who will receive refund
+  user              User                @relation("RefundsReceived", fields: [userId], references: [id])
+  
+  amount            Float               // Refund amount (50% of remaining rental)
+  reason            String              // Why refund is being issued (e.g., "Early Return")
+  status            RefundStatus        @default(PENDING)
+  
+  // Payment details
+  paymentMethod     String?             // "UPI" or "BANK_TRANSFER"
+  upiId             String?             // UPI ID if chosen
+  bankAccountJson   String?             // JSON: {account_holder, account_number, ifsc_code, bank_name}
+  
+  // Processing details
+  processedBy       String?             // Admin ID who processed this
+  processedAt       DateTime?
+  failureReason     String?
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([bookingId])
+  @@index([status])
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model PaymentTransaction {
+  id                String              @id @default(uuid())
+  
+  bookingId         String              @unique
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  lenderId          String              // Lender who receives payment
+  lender            User                @relation("PaymentsReceived", fields: [lenderId], references: [id])
+  
+  amount            Float               // Rental amount to be paid to lender
+  status            PaymentTransactionStatus @default(PENDING)
+  
+  // Payment details
+  paymentMethod     String?             // "UPI" or "BANK_TRANSFER"
+  upiId             String?             // UPI ID if chosen
+  bankAccountJson   String?             // JSON: {account_holder, account_number, ifsc_code, bank_name}
+  
+  // Processing details
+  processedBy       String?             // Admin ID who processed this
+  processedAt       DateTime?
+  failureReason     String?
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([lenderId])
+  @@index([bookingId])
+  @@index([status])
+}

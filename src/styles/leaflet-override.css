@@ -1,0 +1,31 @@
+/* Override Leaflet z-index to prevent overlap with navbar */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+.leaflet-pane {
+  z-index: 2 !important;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 3 !important;
+}
+
+.leaflet-popup {
+  z-index: 10 !important;
+}
+
+.leaflet-control {
+  z-index: 4 !important;
+}
+
+/* Ensure navbar stays above map */
+nav {
+  z-index: 50 !important;
+}
+
+/* Prevent map from scrolling under navbar when scrolling */
+.leaflet-container {
+  position: relative;
+}
