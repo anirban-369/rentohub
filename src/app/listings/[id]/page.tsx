@@ -48,6 +48,17 @@ export default async function ListingPage({ params }: { params: { id: string } }
     ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
     : 0
 
+  const mappedDeliveryAddress = userDeliveryAddress
+    ? {
+        address: userDeliveryAddress.deliveryAddress ?? undefined,
+        city: userDeliveryAddress.deliveryCity ?? undefined,
+        state: userDeliveryAddress.deliveryState ?? undefined,
+        zipCode: userDeliveryAddress.deliveryZipCode ?? undefined,
+        latitude: userDeliveryAddress.deliveryLatitude ?? undefined,
+        longitude: userDeliveryAddress.deliveryLongitude ?? undefined,
+      }
+    : undefined
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -155,7 +166,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
                       </a>
                     </div>
                   ) : (
-                    <BookingWizard listing={listing} userDeliveryAddress={userDeliveryAddress} />
+                    <BookingWizard listing={listing} userDeliveryAddress={mappedDeliveryAddress} />
                   )
                 ) : (
                   <div className="bg-white rounded-lg shadow p-6">

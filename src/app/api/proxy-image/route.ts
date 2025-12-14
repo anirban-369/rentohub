@@ -33,8 +33,10 @@ export async function GET(request: NextRequest) {
 
     const data = await s3.getObject(params).promise()
 
-    // Return the image
-    return new NextResponse(data.Body as Buffer, {
+    // Return the image as a valid BodyInit
+    const bodyBuffer = data.Body as Buffer
+    const bodyUint8 = new Uint8Array(bodyBuffer)
+    return new NextResponse(bodyUint8, {
       headers: {
         'Content-Type': data.ContentType || 'image/jpeg',
         'Cache-Control': 'public, max-age=31536000, immutable',
